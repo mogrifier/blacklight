@@ -1,13 +1,20 @@
 package com.erich;
 
 
+import com.erich.util.Dtime;
+
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.awt.image.DataBufferByte;
 import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
+import java.util.Arrays;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
 
 /**
  * This application will process a directory of images (assumed to be sequential frames in a video) and apply a video
@@ -24,12 +31,14 @@ import java.util.Random;
  */
 public class BlackLight {
 
+    private Dtime delta = null;
     private File input;
     private File output;
     private Random rnd;
 
     public static void main(String[] args) throws IOException {
 	// write your code here
+
 
         //get input directory OR input video - could kick off ffmpeg process from within Java.
         String input = args[0];
@@ -38,14 +47,14 @@ public class BlackLight {
         //create class and run it
         BlackLight fx = new BlackLight(input, output);
         //could speed up with threads acting on a chunk of an image at a time
-        fx.processStills();
 
-        System.out.println("finished");
+        fx.processStills();
     }
 
 
     public BlackLight (String input, String output)
     {
+        delta = new Dtime();
         setInput(new File(input));
         setOutput(new File(output));
         rnd = new Random();
@@ -66,32 +75,43 @@ public class BlackLight {
 
     public void processStills() throws IOException
     {
-        //todo
-        /*
-        Need a thread controller/spawner here, that dishes out parts of the names array to separate threads.
-        The threads do the work and wait ? Or maybe they are just daemons- no point to sync and wait.
-        When last thread is done, program exits. Simplest.
+        //don't use too many threads or it will NOT improve performance. 1 per CPU. Monitoring shows
+        //8 uses every CPU on the mac. very nice and fast but 4 is even faster!!
+        int threads = 4;
 
-        I think a timing utility class may be useful, too. Really simple one method in a class. dTime. Just always
-        prints out the latest differential time since last call. Make sense?
-         */
         //File[] names = input.listFiles(".png");
         File[] names = input.listFiles(new FilenameFilter() {
             public boolean accept(File dir, String name) {
                 return name.toLowerCase().endsWith(".png");
             }
         });
+
+        //names is NOT sorted on a MAC.
+        Arrays.sort(names);
+
+
         //read two image files at a time (in filename order) from input directory
         //System.out.println(Arrays.toString(names));
+        ExecutorService executorService = Executors.newFixedThreadPool(threads);
 
-        //byte[] pixels = ((DataBufferByte) bufferedImage.getRaster().getDataBuffer()).getData();
-        BufferedImage first, second;
-        for (int i = 1; i < names.length; i++) {
-            first = readImage(names[i-1]);
-            second = readImage(names[i]);
-            //process the images
-            createBlackLight(first, second, i);
+        int chunk = (int)names.length/threads;
+        //split up names into chunks of even size, say 10. drop a final odd frame if needed.
+        for (int j = 0; j < threads; j++){
+
+            Runnable runnableTask =  new FX(j * chunk, (j + 1) * chunk, names);
+            executorService.execute(runnableTask);
         }
+
+        executorService.shutdown();
+        try {
+            if (!executorService.awaitTermination(800, TimeUnit.MILLISECONDS)) {
+                executorService.shutdownNow();
+                //delta.getDeltaTime();
+            }
+        } catch (InterruptedException e) {
+            executorService.shutdownNow();
+        }
+
     }
 
     public void createBlackLight(BufferedImage first, BufferedImage second, int count)
@@ -132,7 +152,6 @@ public class BlackLight {
 
                 //FIXME why losing color precision? I think I dropped to 8 bit depth?? weird.
 
-
                 //bgr color order
                 int p = getBlackLightColor(frame1[pos], frame1[pos + 1], frame1[pos + 2],
                         frame2[pos], frame2[pos + 1], frame2[pos + 2]);
@@ -141,20 +160,21 @@ public class BlackLight {
             }
         }
 
+
+        writeImage(blImage, "new_image" + count + ".png");
+
         //only get blacklight a certain percentage of the time- sometimes just pass original image (maybe in streaks)
         //write the image to the output directory
-        if (Math.random() > 0.75) {
+        /*
+        if (Math.random() > 0.09) {
             writeImage(blImage, "new_image" + count + ".png");
         }
         else
         {
             writeImage(second, "new_image" + count + ".png");
         }
+        */
 
-        if (count % 100 == 0)
-        {
-            System.out.println("Frames written = " + count);
-        }
     }
 
     /*
@@ -259,5 +279,53 @@ public class BlackLight {
     public BufferedImage readImage(File name) throws IOException
     {
         return ImageIO.read(name);
+    }
+
+
+
+    public class FX implements Runnable{
+
+        File[] names = null;
+        int start = 0;
+        int stop = 0;
+
+        public FX(int start, int stop, File[] names)
+        {
+            this.start = start;
+            this.stop = stop;
+            this.names = names;
+
+        }
+
+
+        public void run(){
+            //byte[] pixels = ((DataBufferByte) bufferedImage.getRaster().getDataBuffer()).getData();
+            System.out.println("started new thread; start/stop = " + start + "/" + stop);
+            BufferedImage first, second;
+
+            if (stop >= names.length -1)
+            {
+                stop = names.length - 2;
+            }
+
+            for (int i = start; i < stop; i++) {
+                try {
+                    first = readImage(names[i]);
+                    second = readImage(names[i + 1]);
+
+                    //System.out.println(names[i]);
+                    //process the images
+                    createBlackLight(first, second, i);
+                }
+                catch (IOException e) {
+                    //just stop
+                    e.printStackTrace();
+                    System.exit(1);
+                }
+            }
+
+            delta.getDeltaTime();
+        }
+
     }
 }
