@@ -13,7 +13,6 @@ import java.util.Arrays;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 
 /**
@@ -34,7 +33,10 @@ public class BlackLight {
     private Dtime delta = null;
     private File input;
     private File output;
-    private Random rnd;
+
+    public enum Fxtype {
+        NORMALIZED, MOSAIC, SOLAR, BLUE, REFLECTOR, BLACKLIGHT, EDGE, REDEDGE, WHITELINES
+    }
 
     public static void main(String[] args) throws IOException {
 	// write your code here
@@ -48,7 +50,7 @@ public class BlackLight {
         BlackLight fx = new BlackLight(input, output);
         //could speed up with threads acting on a chunk of an image at a time
 
-        fx.processStills();
+        fx.processStills(Fxtype.WHITELINES);
     }
 
 
@@ -57,23 +59,10 @@ public class BlackLight {
         delta = new Dtime();
         setInput(new File(input));
         setOutput(new File(output));
-        rnd = new Random();
-    }
-
-    public void createStillsFromVideo(String video)
-    {
-        //get path and video file name
-
-        //new way - https://github.com/brettwooldridge/NuProcess
-        //call ffmpeg to write to still images - ffmpeg -i 00061.mts  stills/output_%06d.png
-
-
-        //return when done
     }
 
 
-
-    public void processStills() throws IOException
+    public void processStills(Fxtype type) throws IOException
     {
         //don't use too many threads or it will NOT improve performance. 1 per CPU. Monitoring shows
         //8 uses every CPU on the mac. very nice and fast but 4 is even faster!!
@@ -89,7 +78,6 @@ public class BlackLight {
         //names is NOT sorted on a MAC.
         Arrays.sort(names);
 
-
         //read two image files at a time (in filename order) from input directory
         //System.out.println(Arrays.toString(names));
         ExecutorService executorService = Executors.newFixedThreadPool(threads);
@@ -98,7 +86,8 @@ public class BlackLight {
         //split up names into chunks of even size, say 10. drop a final odd frame if needed.
         for (int j = 0; j < threads; j++){
 
-            Runnable runnableTask =  new FX(j * chunk, (j + 1) * chunk, names);
+            //FIXME get from a factory
+            Runnable runnableTask =  new FX(j * chunk, (j + 1) * chunk, names, type);
             executorService.execute(runnableTask);
         }
 
@@ -114,7 +103,7 @@ public class BlackLight {
 
     }
 
-    public void createBlackLight(BufferedImage first, BufferedImage second, int count)
+    public void processFX(BufferedImage first, BufferedImage second, int count, Fxtype fx)
     {
         BufferedImage blImage;
         //images all same dimensions; no alpha channel expected
@@ -141,6 +130,7 @@ public class BlackLight {
         //each pixel is a tuple of pixelLength. Just rip through and create a new RGBA
 
         int pos;
+        int pixel = 0;
 
         for (int y = 0; y < height; y++)
         {
@@ -152,10 +142,70 @@ public class BlackLight {
 
                 //FIXME why losing color precision? I think I dropped to 8 bit depth?? weird.
 
+                //this is the only place the code differs.
+                //FIXME this is slow. Could use an abstract class with one different method. Call from Factory.
+
+                switch (fx)
+                {
+                    case BLUE:
+                    {
+                        pixel = getBlue(frame1[pos], frame1[pos + 1], frame1[pos + 2],
+                                frame2[pos], frame2[pos + 1], frame2[pos + 2]);
+                        break;
+                    }
+                    case SOLAR:
+                    {
+                        pixel = getSolar(frame1[pos], frame1[pos + 1], frame1[pos + 2],
+                                frame2[pos], frame2[pos + 1], frame2[pos + 2]);
+                        break;
+                    }
+                    case MOSAIC:
+                    {
+                        pixel = getMosaic(frame1[pos], frame1[pos + 1], frame1[pos + 2],
+                                frame2[pos], frame2[pos + 1], frame2[pos + 2]);
+                        break;
+                    }
+                    case REFLECTOR:
+                    {
+                        pixel = getReflector(frame1[pos], frame1[pos + 1], frame1[pos + 2],
+                                frame2[pos], frame2[pos + 1], frame2[pos + 2]);
+                        break;
+                    }
+                    case NORMALIZED:
+                    {
+                        pixel = getNormalized(frame1[pos], frame1[pos + 1], frame1[pos + 2],
+                                frame2[pos], frame2[pos + 1], frame2[pos + 2]);
+                        break;
+                    }
+
+                    case BLACKLIGHT:
+                    {
+                        pixel = getBlackLightColor(frame1[pos], frame1[pos + 1], frame1[pos + 2],
+                                frame2[pos], frame2[pos + 1], frame2[pos + 2]);
+                        break;
+                    }
+                    case EDGE:
+                    {
+                        pixel = getSuperEdge(frame1[pos], frame1[pos + 1], frame1[pos + 2],
+                                frame2[pos], frame2[pos + 1], frame2[pos + 2]);
+                        break;
+                    }
+                    case REDEDGE:
+                    {
+                        pixel = getRedEdge(frame1[pos], frame1[pos + 1], frame1[pos + 2],
+                                frame2[pos], frame2[pos + 1], frame2[pos + 2]);
+                        break;
+                    }
+                    case WHITELINES:
+                    {
+                        pixel = getWhiteLines(frame1[pos], frame1[pos + 1], frame1[pos + 2],
+                                frame2[pos], frame2[pos + 1], frame2[pos + 2]);
+                        break;
+                    }
+                }
+
                 //bgr color order
-                int p = getBlackLightColor(frame1[pos], frame1[pos + 1], frame1[pos + 2],
-                        frame2[pos], frame2[pos + 1], frame2[pos + 2]);
-                blImage.setRGB(x, y, p);
+                blImage.setRGB(x, y, pixel);
 
             }
         }
@@ -182,43 +232,140 @@ public class BlackLight {
      */
     private int getBlackLightColor(byte b1, byte g1, byte r1, byte b2, byte g2, byte r2)
     {
-        int r = 0, g = 0, b= 0;
         double redScale = Math.random(), greenScale = Math.random(), blueScale = Math.random();
 
-        /* very much mosaic/edge detect effect
-        r = (byte)(r1 - r2 + Math.ceil(redScale*10));
-        g = (byte)(g1 - g2 + Math.ceil(greenScale*5));
-        b = (byte)(b1 - b2 + Math.ceil(blueScale*3));
-
-        //cool. close to what processing did, but not quite
-        r = Math.abs(r1 - r2);
-        g = Math.abs(g1 - g2);
-        b = Math.abs(b1 - b2);
-
-        adding makes it look posterized/solarized
-        r = (byte)(r1 + r2);
-        g = (byte)(g1 + g2);
-        b = (byte)(b1 + b2);
-
-        //getting darker.
-        r = (byte)((r1 - r2)/4);
-        g = (byte)((g1 - g2)/4);
-        b = (byte)((b1 - b2)/4);
-
-        //blue
-        r = 0; //(int)(r1 - r2 + Math.ceil(redScale*10))/50;
-        g = 0; //(int)(g1 - g2 + Math.ceil(greenScale*5))/50;
-        b = (int)(b1  + Math.ceil(blueScale*3));
-
-        */
         //the processing code simple forces all color values back into the range of 0 to 255.
-        r = reColor(r1, r2, (int)Math.ceil(redScale*10));
-        g = reColor(g1, g2, (int)Math.ceil(greenScale*5));
-        b = reColor(b1, b2, (int)Math.ceil(blueScale*3));
+        int r = reColor(r1, r2, (int)Math.ceil(redScale*10));
+        int g = reColor(g1, g2, (int)Math.ceil(greenScale*5));
+        int b = reColor(b1, b2, (int)Math.ceil(blueScale*3));
 
         return   r<<16 | g<<8 | b;
     }
 
+
+    private int getReflector(byte b1, byte g1, byte r1, byte b2, byte g2, byte r2)
+    {
+        //cool. close to what processing did, but not quite
+        int r = Math.abs(r1 - r2);
+        int g = Math.abs(g1 - g2);
+        int b = Math.abs(b1 - b2);
+
+        return   r<<16 | g<<8 | b;
+    }
+
+    private int getSolar(byte b1, byte g1, byte r1, byte b2, byte g2, byte r2)
+    {
+        //adding makes it look posterized/solarized
+        int r = (byte)(r1 + r2);
+        int g = (byte)(g1 + g2);
+        int b = (byte)(b1 + b2);
+
+        return   r<<16 | g<<8 | b;
+    }
+
+
+
+    private int getBlue(byte b1, byte g1, byte r1, byte b2, byte g2, byte r2)
+    {
+        int r = 0, g = 0;
+        double blueScale = Math.random();
+
+        //blue
+        r = 0; //(int)(r1 - r2 + Math.ceil(redScale*10))/50;
+        g = 0; //(int)(g1 - g2 + Math.ceil(greenScale*5))/50;
+        int b = (int)(b1  + Math.ceil(blueScale*3));
+
+        return   r<<16 | g<<8 | b;
+    }
+
+    private int getMosaic(byte b1, byte g1, byte r1, byte b2, byte g2, byte r2)
+    {
+        double redScale = Math.random(), greenScale = Math.random(), blueScale = Math.random();
+
+        // very much mosaic/edge detect effect
+        int r = (byte)(r1 - r2 + Math.ceil(redScale*10));
+        int g = (byte)(g1 - g2 + Math.ceil(greenScale*5));
+        int b = (byte)(b1 - b2 + Math.ceil(blueScale*3));
+
+        return   r<<16 | g<<8 | b;
+    }
+
+
+    private int getWhiteLines(byte b1, byte g1, byte r1, byte b2, byte g2, byte r2)
+    {
+        // very much mosaic/edge detect effect
+        int r = (byte)(r1 + r2/3);
+        int g = (byte)(g1 + g2/3);
+        int b = (byte)(b1 + b2/3);
+
+        //if big negative delta (gone dark), flip to white
+        if (r2 < 32 && r1 - r2 > 100)
+        {
+            r = r2 + 132;
+        }
+        if (g2 < 32 && g1 - g2 > 100)
+        {
+            g = g2 + 132;
+        }
+        if (b2 < 32 && g1 - g2 > 100)
+        {
+            b = b2 + 132;
+        }
+
+        return   r<<16 | g<<8 | b;
+    }
+
+    private int getSuperEdge(byte b1, byte g1, byte r1, byte b2, byte g2, byte r2)
+    {
+        // very much mosaic/edge detect effect
+        int r = (byte) (r2 + (getEdgePolarity(r1, r2) * Math.abs(r2 - r1)));
+        int g = (byte) (g2 + (getEdgePolarity(g1, g2) * Math.abs(g2 - g1)));
+        int b = (byte) (b2 + (getEdgePolarity(b1, b2) * Math.abs(b2 - b1)));
+
+        return   r<<16 | g<<8 | b;
+    }
+
+    private int getEdgePolarity(byte b1, byte b2)
+    {
+        if (b1 > b2)
+        {
+            return -1;
+        }
+
+        return 1;
+    }
+
+
+    private int getRedEdge(byte b1, byte g1, byte r1, byte b2, byte g2, byte r2)
+    {
+        // very much mosaic/edge detect effect
+        int r = (byte) (r2 + 2 * (getEdgePolarity(r1, r2) * Math.abs(r2 - r1)));
+        int g = (byte) (g2 + (getEdgePolarity(g1, g2) * Math.abs(g2 - g1)));
+        int b = (byte) (b2 + (getEdgePolarity(b1, b2) * Math.abs(b2 - b1)));
+
+        return   r<<16 | g<<8 | b;
+    }
+
+    private int getNormalized(byte b1, byte g1, byte r1, byte b2, byte g2, byte r2)
+    {
+        int r = normalize(r1, r2);
+        int g = normalize(g2, g2);
+        int b = normalize(b1, b2);
+
+        return   r<<16 | g<<8 | b;
+    }
+
+
+    private int normalize(byte x1, byte x2)
+    {
+        int x = (x1 + x2)/2;
+
+        if (x < 32){
+            x = x * 8;
+        }
+
+        return x;
+    }
 
     private int reColor(byte by1, byte by2, int scale)
     {
@@ -288,13 +435,14 @@ public class BlackLight {
         File[] names = null;
         int start = 0;
         int stop = 0;
+        Fxtype type;
 
-        public FX(int start, int stop, File[] names)
+        public FX(int start, int stop, File[] names, Fxtype type)
         {
             this.start = start;
             this.stop = stop;
             this.names = names;
-
+            this.type = type;
         }
 
 
@@ -315,7 +463,7 @@ public class BlackLight {
 
                     //System.out.println(names[i]);
                     //process the images
-                    createBlackLight(first, second, i);
+                    processFX(first, second, i, type);
                 }
                 catch (IOException e) {
                     //just stop
