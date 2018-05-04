@@ -33,6 +33,9 @@ public class BlackLight {
     private Dtime delta = null;
     private File input;
     private File output;
+    private int red = 250;
+    private int green = 135;
+    private int blue = 27;
 
     public enum Fxtype {
         NORMALIZED, MOSAIC, SOLAR, BLUE, REFLECTOR, BLACKLIGHT, EDGE, REDEDGE, WHITELINES
@@ -41,6 +44,7 @@ public class BlackLight {
     public static void main(String[] args) throws IOException {
 	// write your code here
 
+        //TODO new image is not used in anyway to alter creation of future images. Might be useful to include.
 
         //get input directory OR input video - could kick off ffmpeg process from within Java.
         String input = args[0];
@@ -50,7 +54,7 @@ public class BlackLight {
         BlackLight fx = new BlackLight(input, output);
         //could speed up with threads acting on a chunk of an image at a time
 
-        fx.processStills(Fxtype.WHITELINES);
+        fx.processStills(Fxtype.BLACKLIGHT);
     }
 
 
@@ -103,6 +107,25 @@ public class BlackLight {
 
     }
 
+
+    /*
+    This is a time-based algorithm, comparing frame after frame of video. Some of my "effects" were meant to operate
+    on same frame or so I think. So pixels were next to each other vice next one in time but in same place.
+    Very different techniques.
+
+    Probably should create time vectors for each pixel position but that really explodes the memory used. Idea would be
+    too look for patterns over time in the data and modify output image based on that. Two at a time is not enough.
+    30 per second X 1mb X seconds . 3 minutes is 5GB at around 720p. Crazy stuff- now what?
+
+    Possible that the Processing fx that look so different ARE different. They are so damn cool- I must figure out what
+    is really going on. Chart it out on paper.
+
+    What about trying some pure 2d? Convolution?
+     */
+
+
+
+
     public void processFX(BufferedImage first, BufferedImage second, int count, Fxtype fx)
     {
         BufferedImage blImage;
@@ -116,11 +139,13 @@ public class BlackLight {
         {
             pixelLength = 4;
             blImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+            //System.out.println("has alpha");
         }
         else
         {
             pixelLength = 3;
             blImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            //System.out.println("no alpha");
         }
 
         //read all data from both images into a byte array.
@@ -145,6 +170,15 @@ public class BlackLight {
                 //this is the only place the code differs.
                 //FIXME this is slow. Could use an abstract class with one different method. Call from Factory.
 
+                //sure the pixels are bgr? Can multiply by -1 to invert colors, sort of.
+                /*
+                I think processing color model must be different. Run still through processing code from webcam video
+                and see what happens. Test on the same input.
+
+                look further ahead in time. Not +1 frame but variable. also need to test with same pictures vs processing
+                and examine the rgb values. I keep getting more saturated rgb values, vice the mellow values.
+
+                 */
                 switch (fx)
                 {
                     case BLUE:
@@ -182,6 +216,7 @@ public class BlackLight {
                     {
                         pixel = getBlackLightColor(frame1[pos], frame1[pos + 1], frame1[pos + 2],
                                 frame2[pos], frame2[pos + 1], frame2[pos + 2]);
+                        //System.out.println(pixel);
                         break;
                     }
                     case EDGE:
@@ -283,7 +318,7 @@ public class BlackLight {
         double redScale = Math.random(), greenScale = Math.random(), blueScale = Math.random();
 
         // very much mosaic/edge detect effect
-        int r = (byte)(r1 - r2 + Math.ceil(redScale*10));
+        int r = (byte)(r1 - r2 + Math.ceil(redScale*20));
         int g = (byte)(g1 - g2 + Math.ceil(greenScale*5));
         int b = (byte)(b1 - b2 + Math.ceil(blueScale*3));
 
@@ -299,17 +334,17 @@ public class BlackLight {
         int b = (byte)(b1 + b2/3);
 
         //if big negative delta (gone dark), flip to white
-        if (r2 < 32 && r1 - r2 > 100)
+        if (r2 < 64 && r1 - r2 > 50)
         {
-            r = r2 + 132;
+            r = r2 + getNextRed();
         }
-        if (g2 < 32 && g1 - g2 > 100)
+        if (g2 < 64 && g1 - g2 > 50)
         {
-            g = g2 + 132;
+            g = g2 + getNextGreen();
         }
-        if (b2 < 32 && g1 - g2 > 100)
+        if (b2 < 64 && g1 - g2 > 50)
         {
-            b = b2 + 132;
+            b = b2 + getNextBlue();
         }
 
         return   r<<16 | g<<8 | b;
@@ -333,6 +368,36 @@ public class BlackLight {
         }
 
         return 1;
+    }
+
+    private int getNextGreen()
+    {
+        green+=1;
+        if (green > 255)
+        {
+            green = 1;
+        }
+        return green;
+    }
+
+    private int getNextBlue()
+    {
+        blue+=1;
+        if (blue > 255)
+        {
+            blue = 1;
+        }
+        return blue;
+    }
+
+    private int getNextRed()
+    {
+        red+=1;
+        if (red > 255)
+        {
+            red = 1;
+        }
+        return red;
     }
 
 
@@ -367,12 +432,12 @@ public class BlackLight {
         return x;
     }
 
-    private int reColor(byte by1, byte by2, int scale)
+    private int reColor(byte current, byte last, int scale)
     {
         //in case of extreme color change, maybe just return original color- somewhat like processing was doing
         int c = 0, b1 =0, b2 = 0;
 
-        c = (by1 - by2) + scale;
+        c = (last - current) + scale;
 
         //keep to 8 bits
         if (c < 0) return 0;
