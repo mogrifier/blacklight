@@ -144,7 +144,11 @@ public class BlackLight {
         else
         {
             pixelLength = 3;
-            blImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+            blImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_BGR);
+            //TYPE_USHORT_555_RGB);
+
+            //   TYPE_3BYTE_BGR- looks likely
+            // .TYPE_INT_RGB
             //System.out.println("no alpha");
         }
 
@@ -437,9 +441,22 @@ public class BlackLight {
         //in case of extreme color change, maybe just return original color- somewhat like processing was doing
         int c = 0, b1 =0, b2 = 0;
 
-        c = (last - current) + scale;
 
-        //keep to 8 bits
+        if (last - current > 80)
+        {
+            //saturated
+            c = (int)((last - current) * .6);
+        }
+        else if (last - current < 30)
+        {
+            c = last;
+        }
+        else
+        {
+            c = (last - current) + scale;
+        }
+
+        //keep to 8 bits or else the colors more or less invert.
         if (c < 0) return 0;
         if (c > 255) return 255;
         return c;
