@@ -38,7 +38,7 @@ public class BlackLight {
     private int blue = 27;
 
     public enum Fxtype {
-        NORMALIZED, MOSAIC, SOLAR, BLUE, REFLECTOR, BLACKLIGHT, EDGE, REDEDGE, WHITELINES
+        NORMALIZED, MOSAIC, SOLAR, BLUE, REFLECTOR, BLACKLIGHT, EDGE, REDEDGE, WHITELINES, BLACKLIGHT2
     }
 
     public static void main(String[] args) throws IOException {
@@ -54,7 +54,7 @@ public class BlackLight {
         BlackLight fx = new BlackLight(input, output);
         //could speed up with threads acting on a chunk of an image at a time
 
-        fx.processStills(Fxtype.BLACKLIGHT);
+        fx.processStills(Fxtype.BLACKLIGHT2);
     }
 
 
@@ -133,6 +133,7 @@ public class BlackLight {
         // may need to examine color model. Is it RGB order?? first.getType()
         int width = first.getWidth();
         int height = first.getHeight();
+        //System.out.println(first.getType()); gives type 5 = TYPE_3BYTE_BGR
         boolean hasAlphaChannel = first.getAlphaRaster() != null;
         int pixelLength = 3;
         if (hasAlphaChannel)
@@ -144,7 +145,11 @@ public class BlackLight {
         else
         {
             pixelLength = 3;
-            blImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_BGR);
+            blImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+
+            //.TYPE_BYTE_GRAY);  it works but not good enough
+
+                    //TYPE_3BYTE_BGR);
             //TYPE_USHORT_555_RGB);
 
             //   TYPE_3BYTE_BGR- looks likely
@@ -154,7 +159,8 @@ public class BlackLight {
 
         //read all data from both images into a byte array.
         byte[] frame1 = ((DataBufferByte) first.getRaster().getDataBuffer()).getData();
-        byte[] frame2 = ((DataBufferByte) second.getRaster().getDataBuffer()).getData();
+        byte[] frame2 = new byte[frame1.length];
+        //byte[] frame2 = ((DataBufferByte) second.getRaster().getDataBuffer()).getData();
 
         //each pixel is a tuple of pixelLength. Just rip through and create a new RGBA
 
@@ -166,13 +172,11 @@ public class BlackLight {
             for (int x = 0; x < width; x++)
             {
                 pos = y * width * pixelLength + x * pixelLength;
-                //TODO
                 //calculate new pixel color value from the other two pixels (from each image)- use getReflector
 
                 //FIXME why losing color precision? I think I dropped to 8 bit depth?? weird.
 
                 //this is the only place the code differs.
-                //FIXME this is slow. Could use an abstract class with one different method. Call from Factory.
 
                 //sure the pixels are bgr? Can multiply by -1 to invert colors, sort of.
                 /*
@@ -219,6 +223,13 @@ public class BlackLight {
                     case BLACKLIGHT:
                     {
                         pixel = getBlackLightColor(frame1[pos], frame1[pos + 1], frame1[pos + 2],
+                                frame2[pos], frame2[pos + 1], frame2[pos + 2]);
+                        //System.out.println(pixel);
+                        break;
+                    }
+                    case BLACKLIGHT2:
+                    {
+                        pixel = getBlackLightColor2(frame1[pos], frame1[pos + 1], frame1[pos + 2],
                                 frame2[pos], frame2[pos + 1], frame2[pos + 2]);
                         //System.out.println(pixel);
                         break;
@@ -279,6 +290,16 @@ public class BlackLight {
         int b = reColor(b1, b2, (int)Math.ceil(blueScale*3));
 
         return   r<<16 | g<<8 | b;
+    }
+
+
+    private int getBlackLightColor2(byte b1, byte g1, byte r1, byte b2, byte g2, byte r2)
+    {
+        int red = r2 - r1;
+        int green = g2 - g1;
+        int blue = b2 -b1;
+
+        return   red<<16 | green<<8 | blue;
     }
 
 
@@ -442,12 +463,12 @@ public class BlackLight {
         int c = 0, b1 =0, b2 = 0;
 
 
-        if (last - current > 80)
+        if (last - current > 90)   //120 is too high. 80 good
         {
             //saturated
             c = (int)((last - current) * .6);
         }
-        else if (last - current < 30)
+        else if (last - current < 20)  //30 is good
         {
             c = last;
         }

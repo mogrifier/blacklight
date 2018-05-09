@@ -1,0 +1,256 @@
+
+import processing.video.*;
+import java.io.File;
+
+//convolution kernel
+PImage lastImg;
+PImage currentImg;
+PImage fxImg;
+color lastColor;
+color currentColor;
+float lRed;
+float lGreen;
+float lBlue;
+
+//static processing types
+static final int BWGHOST = 0;
+static final int RAINBOW = 1;
+static final int FIRETAIL = 2;
+static final int RANDOM = 3;
+static final int REFLECTOR = 4;
+
+String names[];
+int index = 0;
+String path = "C:\\blacklight-data\\blacklight-data\\stills-me";
+
+//edge
+/*
+float[][] kernel = {{ -1, -1, -1},
+                    { -1,  8, -1},
+                    { -1, -1, -1}};
+         */
+
+/*
+float[][] kernel = {{ 0, -1, 0},
+                    { -1,  5, -1},
+                    { 0, -1, 0}};
+         */
+
+//blur
+
+//edge- like chalk on black. very cool. Can colorize, too.
+
+float[][] kernel = {{ -1, -2, -1},
+                    { 0, 0, 0},
+                    { 1, 2, 1}};
+
+
+//big blur
+/*
+float[][] kernel = {{ 1, 4, 6, 4, 1},
+                    { 4, 16, 24, 16, 4},
+                    { 6, 24, 36, 24, 6},
+                    { 4, 16, 24, 16, 4},
+                    { 1, 4, 6, 4, 1}};
+        */
+
+int stride = 1;
+
+void setup() {
+  size(1280, 720);
+
+
+    File file = new File(path);
+    names = file.list();
+
+
+
+  //initialize last image
+  lastImg = createImage(1280, 720, RGB);
+}
+
+
+
+
+
+void draw() {
+
+  background(200, 50, 70);
+
+
+  // The following does the same, and is faster when just drawing the image
+  // without any additional resizing, transformations, or tint.
+  //set(0, 0, cam);
+
+  currentImg = loadImage(path + File.separator + names[index++]);
+
+  image(currentImg, 0, 0); // Displays the image from point (0,0)
+  currentImg.loadPixels();
+
+
+  // Create an opaque image of the same size as the original
+ fxImg = createImage(1280, 720, RGB);
+
+    //save a copy of the image for adding memory to processing. don't work with convoluted image.
+  //currentImg = cam.copy();
+
+
+  // Loop through every pixel in the image.
+  for (int y = 1; y < 720-1; y+=stride) { // Skip top and bottom edges
+
+
+
+    for (int x = 1; x < 1280-1; x+=stride) { // Skip left and right edges
+      float sum = 0; // Kernel sum for this pixel
+
+
+      for (int ky = -1; ky <= 1; ky++) {
+        for (int kx = -1; kx <= 1; kx++) {
+          // Calculate the adjacent pixel for this kernel point
+          int pos = (y + ky)*1280 + (x + kx);
+          // Image is grayscale, red/green/blue are identical
+          float r = red(currentImg.pixels[pos]);
+          float g = green(currentImg.pixels[pos]);
+          float b = blue(currentImg.pixels[pos]);
+          // Multiply adjacent pixels based on the kernel values
+
+          //println(ky);
+          //println(kx);
+          sum += (kernel[ky+1][kx+1] * (r + g+ b)/3f);
+
+        }
+      }
+      // For this pixel in the new image, set the gray value
+      // based on the sum from the kernel
+      //sum = (int)(sum/9f);
+      //println(sum);
+
+      //drive color from fft? integrate all the data. Could pre-process and save to file and just read in
+
+      if (lastImg.pixels.length > 0)
+      {
+        //put pixels into array
+        lastImg.loadPixels();
+        //read out the pixel color for the last image and use to alter the next image
+        lastColor = lastImg.pixels[y*1280 + x];
+        currentColor = currentImg.pixels[y*1280 + x];
+      }
+
+      //load value directly into the pixel array
+      fxImg.pixels[y*1280 + x] = fxColor(sum, lastColor, currentColor, RANDOM);
+    }
+  }
+  // State that there are changes to edgeImg.pixels[]
+  fxImg.updatePixels();
+  image(fxImg, 0, 0); // Draw the new image
+
+lastImg = currentImg.copy();
+}
+
+
+//apply memory
+/*
+This function creates a ghostly image (black and white) . Slowed and delyaed video with trails.
+*/
+float applyMemory(float input, float history)
+{
+   float newColor = input + history;
+
+   if (newColor > 255)
+   {
+     newColor = 255;
+   }
+
+  return newColor;
+}
+
+color fxColor(float input, color lastColor, color currentColor, int type)
+{
+    color newColor = color(100,100,100);
+    //break into rgb values - float redValue = red(c);
+    lRed = red(lastColor);
+    lGreen = green(lastColor);
+    lBlue = blue(lastColor);
+
+    float red = 0, green = 0, blue = 0;
+
+    //println(input + lRed);
+
+   //switch on type and select various little algorithms for pixel color processing
+   switch (type) {
+
+     case BWGHOST:
+       red = bound(input + lRed);
+       green = bound(input + lGreen);
+       blue = bound(input + lBlue);
+       newColor = color(red, green, blue);
+       break;
+     case RAINBOW:
+       newColor = getRainbow(input, lRed, lGreen, lBlue);
+       break;
+    case RANDOM:
+       newColor = getRandom(input, currentColor, lRed, lGreen, lBlue);
+       break;
+     case REFLECTOR:
+       newColor = getReflector(input, currentColor, lRed, lGreen, lBlue);
+       break;
+
+   }
+
+
+  return newColor;
+}
+
+float bound(float input)
+{
+       if (input > 255)
+       {
+         input = 255;
+       }
+
+  return input;
+}
+
+
+color getRainbow(float input, float r, float g, float b)
+{
+  color rainbow = color(100, 100, 100);
+  float red = 0, green = 0, blue = 0;
+
+
+  red = input - 10f * Math.abs(input - r)/10f;
+  green = input - 10f * Math.abs(input - g)/10f;
+  blue = input - 10f * Math.abs(input - b)/10f;
+
+  rainbow =  color(red, green, blue);
+  return rainbow;
+}
+
+
+color getRandom(float input, color current, float r, float g, float b)
+{
+  color rainbow = color(100, 100, 100);
+  float red = 0, green = 0, blue = 0;
+
+
+  red = r - red(current);
+  green = g - green(current);
+  blue = b - blue(current);
+
+  rainbow =  color(red, green, blue);
+  return rainbow;
+}
+
+color getReflector(float input, color current, float r, float g, float b)
+{
+  float red = 0, green = 0, blue = 0;
+
+  float redScale = (float)Math.random(), greenScale = (float)Math.random(), blueScale = (float)Math.random();
+
+  //looks cool
+  red = r - red(current) + redScale * 10;
+  green = g - green(current) + greenScale * 5;
+  blue = b - blue(current) + blueScale * 3;
+
+  return color(red, green, blue);
+}
