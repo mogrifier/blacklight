@@ -10,7 +10,6 @@ import java.io.File;
 import java.io.FilenameFilter;
 import java.io.IOException;
 import java.util.Arrays;
-import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -28,7 +27,7 @@ import java.util.concurrent.TimeUnit;
  * To create video from images try this:
  * ffmpeg -start_number 1 -i new_image%d.png -vcodec mpeg4 test.mp4
  */
-public class BlackLight {
+public class BlackLight2 {
 
     private Dtime delta = null;
     private File input;
@@ -51,14 +50,14 @@ public class BlackLight {
         //get output directory
         String output = args[1];
         //create class and run it
-        BlackLight fx = new BlackLight(input, output);
+        BlackLight2 fx = new BlackLight2(input, output);
         //could speed up with threads acting on a chunk of an image at a time
 
         fx.processStills(Fxtype.BLACKLIGHT2);
     }
 
 
-    public BlackLight (String input, String output)
+    public BlackLight2(String input, String output)
     {
         delta = new Dtime();
         setInput(new File(input));
@@ -82,6 +81,8 @@ public class BlackLight {
         //names is NOT sorted on a MAC.
         Arrays.sort(names);
 
+        processFX(names);
+        /*
         //read two image files at a time (in filename order) from input directory
         //System.out.println(Arrays.toString(names));
         ExecutorService executorService = Executors.newFixedThreadPool(threads);
@@ -104,6 +105,7 @@ public class BlackLight {
         } catch (InterruptedException e) {
             executorService.shutdownNow();
         }
+        */
 
     }
 
@@ -126,26 +128,19 @@ public class BlackLight {
 
 
 
-    public void processFX(BufferedImage first, BufferedImage second, int count, Fxtype fx)
+    public void processFX(File[] names) throws IOException
     {
         BufferedImage blImage;
+        BufferedImage current;
+        BufferedImage last;
+        Fxtype fx = Fxtype.BLACKLIGHT2;
         //images all same dimensions; no alpha channel expected
         // may need to examine color model. Is it RGB order?? first.getType()
-        int width = first.getWidth();
-        int height = first.getHeight();
+        int width = 0;
+        int height = 0;
         //System.out.println(first.getType()); gives type 5 = TYPE_3BYTE_BGR
-        boolean hasAlphaChannel = first.getAlphaRaster() != null;
         int pixelLength = 3;
-        if (hasAlphaChannel)
-        {
-            pixelLength = 4;
-            blImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
-            //System.out.println("has alpha");
-        }
-        else
-        {
-            pixelLength = 3;
-            blImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
+
 
             //.TYPE_BYTE_GRAY);  it works but not good enough
 
@@ -155,30 +150,46 @@ public class BlackLight {
             //   TYPE_3BYTE_BGR- looks likely
             // .TYPE_INT_RGB
             //System.out.println("no alpha");
-        }
+
 
         //read all data from both images into a byte array.
-        byte[] frame1 = ((DataBufferByte) first.getRaster().getDataBuffer()).getData();
-        //byte[] frame2 = new byte[frame1.length];
-        byte[] frame2 = ((DataBufferByte) second.getRaster().getDataBuffer()).getData();
+        byte[] frame1 = null;
+        byte[] frame2 = null;
+        //byte[] frame2 = ((DataBufferByte) second.getRaster().getDataBuffer()).getData();
 
         //each pixel is a tuple of pixelLength. Just rip through and create a new RGBA
 
         int pos;
         int pixel = 0;
 
-        for (int y = 0; y < height; y++)
-        {
-            for (int x = 0; x < width; x++)
+        for (int id = 0; id < names.length; id++) {
+
+            current = readImage(names[id]);
+            //byte buffer is correct
+            frame1 = ((DataBufferByte) current.getRaster().getDataBuffer()).getData();
+
+            //System.out.println("length of  frame1=" + frame1.length);
+            //System.out.println(current.getRaster().getDataBuffer().getDataType());
+
+            if (frame2 == null)
             {
-                pos = y * width * pixelLength + x * pixelLength;
-                //calculate new pixel color value from the other two pixels (from each image)- use getReflector
+                frame2 = new byte[frame1.length];
+            }
+            width = current.getWidth();
+            height = current.getHeight();
 
-                //FIXME why losing color precision? I think I dropped to 8 bit depth?? weird.
+            blImage = new BufferedImage(width, height, BufferedImage.TYPE_INT_RGB);
 
-                //this is the only place the code differs.
+            for (int y = 0; y < height; y++) {
+                for (int x = 0; x < width; x++) {
+                    pos = pixelLength * (y * width + x);
+                    //calculate new pixel color value from the other two pixels (from each image)- use getReflector
 
-                //sure the pixels are bgr? Can multiply by -1 to invert colors, sort of.
+                    //FIXME why losing color precision? I think I dropped to 8 bit depth?? weird.
+
+                    //this is the only place the code differs.
+
+                    //sure the pixels are bgr? Can multiply by -1 to invert colors, sort of.
                 /*
                 I think processing color model must be different. Run still through processing code from webcam video
                 and see what happens. Test on the same input.
@@ -187,81 +198,80 @@ public class BlackLight {
                 and examine the rgb values. I keep getting more saturated rgb values, vice the mellow values.
 
                  */
-                switch (fx)
-                {
-                    case BLUE:
-                    {
+
+                switch (fx) {
+                    case BLUE: {
                         pixel = getBlue(frame1[pos], frame1[pos + 1], frame1[pos + 2],
                                 frame2[pos], frame2[pos + 1], frame2[pos + 2]);
                         break;
                     }
-                    case SOLAR:
-                    {
+                    case SOLAR: {
                         pixel = getSolar(frame1[pos], frame1[pos + 1], frame1[pos + 2],
                                 frame2[pos], frame2[pos + 1], frame2[pos + 2]);
                         break;
                     }
-                    case MOSAIC:
-                    {
+                    case MOSAIC: {
                         pixel = getMosaic(frame1[pos], frame1[pos + 1], frame1[pos + 2],
                                 frame2[pos], frame2[pos + 1], frame2[pos + 2]);
                         break;
                     }
-                    case REFLECTOR:
-                    {
+                    case REFLECTOR: {
                         pixel = getReflector(frame1[pos], frame1[pos + 1], frame1[pos + 2],
                                 frame2[pos], frame2[pos + 1], frame2[pos + 2]);
                         break;
                     }
-                    case NORMALIZED:
-                    {
+                    case NORMALIZED: {
                         pixel = getNormalized(frame1[pos], frame1[pos + 1], frame1[pos + 2],
                                 frame2[pos], frame2[pos + 1], frame2[pos + 2]);
                         break;
                     }
 
-                    case BLACKLIGHT:
-                    {
+                    case BLACKLIGHT: {
                         pixel = getBlackLightColor(frame1[pos], frame1[pos + 1], frame1[pos + 2],
                                 frame2[pos], frame2[pos + 1], frame2[pos + 2]);
                         //System.out.println(pixel);
                         break;
                     }
-                    case BLACKLIGHT2:
-                    {
+                    case BLACKLIGHT2: {
                         pixel = getBlackLightColor2(frame1[pos], frame1[pos + 1], frame1[pos + 2],
                                 frame2[pos], frame2[pos + 1], frame2[pos + 2]);
                         //System.out.println(pixel);
                         break;
                     }
-                    case EDGE:
-                    {
+                    case EDGE: {
                         pixel = getSuperEdge(frame1[pos], frame1[pos + 1], frame1[pos + 2],
                                 frame2[pos], frame2[pos + 1], frame2[pos + 2]);
                         break;
                     }
-                    case REDEDGE:
-                    {
+                    case REDEDGE: {
                         pixel = getRedEdge(frame1[pos], frame1[pos + 1], frame1[pos + 2],
                                 frame2[pos], frame2[pos + 1], frame2[pos + 2]);
                         break;
                     }
-                    case WHITELINES:
-                    {
+                    case WHITELINES: {
                         pixel = getWhiteLines(frame1[pos], frame1[pos + 1], frame1[pos + 2],
                                 frame2[pos], frame2[pos + 1], frame2[pos + 2]);
                         break;
                     }
                 }
 
-                //bgr color order
-                blImage.setRGB(x, y, pixel);
 
+                    //write the pixels to output image
+                    blImage.setRGB(x, y, pixel);
+
+                }
             }
+
+            //write the output file
+            writeImage(blImage, "new_image" + id + ".png");
+
+            //create last from current
+            System.arraycopy(frame1, 0, frame2, 0, frame1.length);
+
         }
 
 
-        writeImage(blImage, "new_image" + count + ".png");
+
 
         //only get blacklight a certain percentage of the time- sometimes just pass original image (maybe in streaks)
         //write the image to the output directory
@@ -566,7 +576,7 @@ public class BlackLight {
 
                     //System.out.println(names[i]);
                     //process the images
-                    processFX(first, second, i, type);
+                    //processFX(first, second, i, type);
                 }
                 catch (IOException e) {
                     //just stop

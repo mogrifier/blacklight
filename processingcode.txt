@@ -10,13 +10,14 @@ color currentColor;
 float lRed;
 float lGreen;
 float lBlue;
+int effect = 0;
 
 //static processing types
 static final int BWGHOST = 0;
-static final int RAINBOW = 1;
-static final int FIRETAIL = 2;
-static final int RANDOM = 3;
-Static final int REFLECTOR = 4;
+static final int CHALK = 1;
+static final int BLACKLIGHT = 2;
+static final int CONVOLVEDBLACKLIGHT = 3;
+static final int MORECOLOR = 4;
 
 //edge
 /*
@@ -29,17 +30,21 @@ float[][] kernel = {{ -1, -1, -1},
 float[][] kernel = {{ 0, -1, 0},
                     { -1,  5, -1},
                     { 0, -1, 0}};
+
+                    {{ -1, -2, -1},
+                    { 0, 0, 0},
+                    { 1, 2, 1}};
+
+kernel
          */
 
 //blur
 
 //edge- like chalk on black. very cool. Can colorize, too.
 
-float[][] kernel = {{ -1, -2, -1},
-                    { 0, 0, 0},
-                    { 1, 2, 1}};
-
-
+float[][] kernel = {{ -1, -1, -1},
+                    { -1,  8, -1},
+                    { -1, -1, -1}};
 //big blur
 /*
 float[][] kernel = {{ 1, 4, 6, 4, 1},
@@ -52,7 +57,7 @@ float[][] kernel = {{ 1, 4, 6, 4, 1},
 int stride = 1;
 
 void setup() {
-  size(1000,800);
+  size(1280, 720);
 
   String[] cameras = Capture.list();
 
@@ -65,8 +70,7 @@ void setup() {
       println(cameras[i]);
     }
 
-    // The camera can be initialized directly using an
-    // element from the array returned by list():
+    // The camera can be initialized directly using an element from the array returned by list():
     cam = new Capture(this, cameras[0]);
     cam.start();
   }
@@ -77,7 +81,6 @@ void setup() {
 
 void draw() {
 
-  background(200, 50, 70);
 
   if (cam.available() == true) {
     cam.read();
@@ -103,30 +106,23 @@ void draw() {
 
     for (int x = 1; x < cam.width-1; x+=stride) { // Skip left and right edges
       float sum = 0; // Kernel sum for this pixel
-
+      float[] colorSum = {0,0,0};
 
       for (int ky = -1; ky <= 1; ky++) {
         for (int kx = -1; kx <= 1; kx++) {
           // Calculate the adjacent pixel for this kernel point
           int pos = (y + ky)*cam.width + (x + kx);
-          // Image is grayscale, red/green/blue are identical
           float r = red(cam.pixels[pos]);
           float g = green(cam.pixels[pos]);
           float b = blue(cam.pixels[pos]);
           // Multiply adjacent pixels based on the kernel values
 
-          //println(ky);
-          //println(kx);
-          sum += (kernel[ky+1][kx+1] * (r + g+ b)/3f);
-
+          sum += (kernel[ky+1][kx+1] * (r + g + b)/3f);
+          colorSum[0] += kernel[ky+1][kx+1] * r;
+          colorSum[1] += kernel[ky+1][kx+1] * g;
+          colorSum[2] += kernel[ky+1][kx+1] * b;
         }
       }
-      // For this pixel in the new image, set the gray value
-      // based on the sum from the kernel
-      //sum = (int)(sum/9f);
-      //println(sum);
-
-      //drive color from fft? integrate all the data. Could pre-process and save to file and just read in
 
       if (lastImg.pixels.length > 0)
       {
@@ -138,7 +134,7 @@ void draw() {
       }
 
       //load value directly into the pixel array
-      edgeImg.pixels[y*cam.width + x] = fxColor(sum, lastColor, currentColor, RANDOM);
+      edgeImg.pixels[y*cam.width + x] = fxColor(sum, colorSum, lastColor, currentColor, effect);
     }
   }
   // State that there are changes to edgeImg.pixels[]
@@ -147,6 +143,16 @@ void draw() {
 
 lastImg = cam.copy();
 }
+
+void keyPressed() {
+  //go to next processing effect
+  effect++;
+  if (effect > MORECOLOR)
+  {
+    effect = BWGHOST;
+  }
+}
+
 
 
 //apply memory
@@ -165,7 +171,7 @@ float applyMemory(float input, float history)
   return newColor;
 }
 
-color fxColor(float input, color lastColor, color currentColor, int type)
+color fxColor(float input, float[] colorArray, color lastColor, color currentColor, int type)
 {
     color newColor = color(100,100,100);
     //break into rgb values - float redValue = red(c);
@@ -186,14 +192,17 @@ color fxColor(float input, color lastColor, color currentColor, int type)
        blue = bound(input + lBlue);
        newColor = color(red, green, blue);
        break;
-     case RAINBOW:
-       newColor = getRainbow(input, lRed, lGreen, lBlue);
+     case CHALK:
+       newColor = getChalk(input, lRed, lGreen, lBlue);
        break;
-    case RANDOM:
-       newColor = getRandom(input, currentColor, lRed, lGreen, lBlue);
+    case BLACKLIGHT:
+       newColor = getBlacklight(currentColor, lRed, lGreen, lBlue);
        break;
-     case REFLECTOR:
-       newColor = getReflector(input, currentColor, lRed, lGreen, lBlue);
+    case CONVOLVEDBLACKLIGHT:
+       newColor = getConvolvedBlacklight(colorArray, currentColor, lRed, lGreen, lBlue);
+       break;
+     case MORECOLOR:
+       newColor = getBlacklightMoreColor(currentColor, lRed, lGreen, lBlue);
        break;
 
    }
@@ -213,9 +222,9 @@ float bound(float input)
 }
 
 
-color getRainbow(float input, float r, float g, float b)
+color getChalk(float input, float r, float g, float b)
 {
-  color rainbow = color(100, 100, 100);
+  color chalk = 0;
   float red = 0, green = 0, blue = 0;
 
 
@@ -223,35 +232,42 @@ color getRainbow(float input, float r, float g, float b)
   green = input - 10f * Math.abs(input - g)/10f;
   blue = input - 10f * Math.abs(input - b)/10f;
 
-  rainbow =  color(red, green, blue);
-  return rainbow;
+  chalk =  color(red, green, blue);
+  return chalk;
 }
 
 
-color getRandom(float input, color current, float r, float g, float b)
+color getBlacklight(color current, float r, float g, float b)
 {
-  color rainbow = color(100, 100, 100);
   float red = 0, green = 0, blue = 0;
-
-
   red = r - red(current);
   green = g - green(current);
   blue = b - blue(current);
 
-  rainbow =  color(red, green, blue);
-  return rainbow;
+  return color(red, green, blue);
 }
 
-color getReflector(float input, color current, float r, float g, float b)
+color getBlacklightMoreColor(color current, float r, float g, float b)
 {
   float red = 0, green = 0, blue = 0;
 
   float redScale = (float)Math.random(), greenScale = (float)Math.random(), blueScale = (float)Math.random();
 
   //looks cool
-  red = r - red(current) + redScale * 10;
-  green = g - green(current) + greenScale * 5;
-  blue = b - blue(current) + blueScale * 3;
+  red = r - red(current) + redScale * 20;
+  green = g - green(current) + greenScale * 10;
+  blue = b - blue(current) + blueScale * 7;
+
+  return color(red, green, blue);
+}
+
+color getConvolvedBlacklight(float[] input, color current, float r, float g, float b)
+{
+  float redScale = (float)Math.random(), greenScale = (float)Math.random(), blueScale = (float)Math.random();
+  float red = 0, green = 0, blue = 0;
+  red = (input[0] + red(current))/2 - r + redScale * 20;
+  green = (input[1] + green(current))/2 - g + greenScale * 20;
+  blue = (input[2] + blue(current))/2 - b + blueScale * 20;
 
   return color(red, green, blue);
 }

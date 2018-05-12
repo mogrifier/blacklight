@@ -237,6 +237,14 @@ color getRandom(float input, color current, float r, float g, float b)
   green = g - green(current);
   blue = b - blue(current);
 
+if (red + green + blue < 50)
+    {
+
+        //very interesting
+      return color(red *4, green *4, blue*4);
+    }
+
+
   rainbow =  color(red, green, blue);
   return rainbow;
 }
@@ -251,6 +259,8 @@ color getReflector(float input, color current, float r, float g, float b)
   red = r - red(current) + redScale * 10;
   green = g - green(current) + greenScale * 5;
   blue = b - blue(current) + blueScale * 3;
+
+
 
   return color(red, green, blue);
 }
